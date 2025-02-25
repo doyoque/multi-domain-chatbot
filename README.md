@@ -37,10 +37,9 @@ Successful deployment process:
 
 ## Example API
 
-URL: https://cj17kisov7.execute-api.ap-southeast-1.amazonaws.com/prod/chatbot
+URL: https://cj17kisov7.execute-api.ap-southeast-1.amazonaws.com/prod/chatbot<br>
 When ask about random jokes:
 ```bash
-# telling you a random jokes
 curl --location 'https://cj17kisov7.execute-api.ap-southeast-1.amazonaws.com/prod/chatbot' \
 --header 'Content-Type: application/json' \
 --data '{
@@ -57,7 +56,6 @@ The answer:
 
 When ask the current weather of a city
 ```bash
-# Check current weather (make sure to put city,country)
 curl --location 'https://cj17kisov7.execute-api.ap-southeast-1.amazonaws.com/prod/chatbot' \
 --header 'Content-Type: application/json' \
 --data '{
