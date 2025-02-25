@@ -1,0 +1,124 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Deploy an AWS Lambda function with API Gateway and DynamoDB to
+  store chatbot logs.
+
+Parameters:
+  S3Bucket:
+    Type: String
+    Description: Name of an existing S3 Bucket that contains the Lambda ZIP
+
+Resources:
+  # --- DynamoDB Table for Chat Logs ---
+  ChatLogsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: chat_logs
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: request_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: request_id
+          KeyType: HASH
+
+  # --- Lambda Function ---
+  ChatbotLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: ChatbotLambda
+      Runtime: python3.9
+      Handler: chatbot.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref S3Bucket
+        S3Key: chatbot.zip
+      MemorySize: 128
+      Timeout: 10
+      Environment:
+        Variables:
+          DYNAMODB_TABLE: chat_logs
+          WEATHER_API_KEY: a6ed4e52e1f12ed27bf33237ad44a71c
+
+  # --- Lambda Execution Role ---
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: LambdaChatbotRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: LambdaDynamoDBPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:GetItem
+                Resource: !GetAtt ChatLogsTable.Arn
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource: !Sub arn:aws:s3:::${S3Bucket}/*
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: arn:aws:logs:*:*:*
+
+  # --- API Gateway ---
+  ChatbotApiGateway:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: ChatbotApi
+      Description: API Gateway for Chatbot
+
+  ChatbotResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref ChatbotApiGateway
+      ParentId: !GetAtt ChatbotApiGateway.RootResourceId
+      PathPart: chatbot
+
+  ChatbotMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ChatbotApiGateway
+      ResourceId: !Ref ChatbotResource
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub
+          - arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaArn}/invocations
+          - LambdaArn: !GetAtt ChatbotLambdaFunction.Arn
+
+  ChatbotDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn: ChatbotMethod
+    Properties:
+      RestApiId: !Ref ChatbotApiGateway
+      StageName: prod
+
+  # --- Lambda Permission for API Gateway ---
+  LambdaChatbotApiGatewayPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref ChatbotLambdaFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ChatbotApiGateway}/*/*/chatbot
+
+Outputs:
+  ChatbotApiGatewayInvokeURL:
+    Description: Chatbot API Gateway Invoke URL
+    Value: !Sub https://${ChatbotApiGateway}.execute-api.${AWS::Region}.amazonaws.com/prod/chatbot
